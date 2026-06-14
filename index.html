@@ -99,6 +99,8 @@
   }
   .item-card:active { transform: scale(0.97); }
   .item-card.checked { border-color: #007AFF; }
+  .item-card.carted  { background: #FFFBEB; border-color: #FCD34D; }
+  .item-card.carted.checked { border-color: #007AFF; }
 
   /* 이미지 영역 */
   .card-img {
@@ -344,6 +346,67 @@
   }
   .btn-search:disabled { background: #C7C7CC; cursor: not-allowed; }
 
+  /* 가상 장바구니 */
+  .cart-section {
+    background: white;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .cart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .cart-header h2 { font-size: 17px; font-weight: 700; }
+  .btn-cart-clear {
+    background: #F2F2F7;
+    color: #8E8E93;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .cart-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #F2F2F7;
+    gap: 10px;
+  }
+  .cart-item:last-child { border-bottom: none; }
+  .cart-item-img {
+    width: 44px; height: 44px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: #F2F2F7;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    overflow: hidden;
+  }
+  .cart-item-img img { width: 100%; height: 100%; object-fit: cover; }
+  .cart-item-info { flex: 1; min-width: 0; }
+  .cart-item-name { font-size: 14px; font-weight: 600; color: #1C1C1E; }
+  .cart-item-note { font-size: 12px; color: #8E8E93; margin-top: 1px; }
+  .btn-cart-remove {
+    background: none;
+    border: none;
+    color: #C7C7CC;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .btn-cart-remove:hover { color: #FF3B30; }
+  .cart-empty { text-align: center; padding: 20px; color: #C7C7CC; font-size: 14px; }
+
   .spacer { height: 100px; }
 
   .empty-state {
@@ -392,6 +455,7 @@
 <script>
 const STORAGE_KEY = 'emart_items_v2';
 const CHECKED_KEY = 'emart_checked_v2';
+const CARTED_KEY  = 'emart_carted_v2';
 
 const CATEGORY_EMOJI = {
   '채소': '🥦', '두부/콩': '🫘', '달걀/유제품': '🥚', '육류/냉동': '🥩',
@@ -442,8 +506,9 @@ const DEFAULT_ITEMS = [
 
 const CATEGORIES = ['채소','두부/콩','달걀/유제품','육류/냉동','라면/면','과자/간식','통조림/소스','국/수프','음료','생활용품'];
 
-let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || DEFAULT_ITEMS;
+let items   = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || DEFAULT_ITEMS;
 let checked = new Set(JSON.parse(localStorage.getItem(CHECKED_KEY) || '[]'));
+let carted  = new Set(JSON.parse(localStorage.getItem(CARTED_KEY)  || '[]'));
 let activeTab = '전체';
 let addFormOpenCat = null;
 let newId = 10000;
@@ -451,6 +516,7 @@ let newId = 10000;
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   localStorage.setItem(CHECKED_KEY, JSON.stringify([...checked]));
+  localStorage.setItem(CARTED_KEY,  JSON.stringify([...carted]));
 }
 
 function getCategories() {
@@ -473,12 +539,26 @@ function deleteItem(id, e) {
   if (!confirm('이 항목을 삭제할까요?')) return;
   items = items.filter(i => i.id !== id);
   checked.delete(id);
+  carted.delete(id);
   save();
   render();
 }
 
 function clearAll() {
   checked.clear();
+  save();
+  render();
+}
+
+function removeFromCart(id, e) {
+  if (e) e.stopPropagation();
+  carted.delete(id);
+  save();
+  render();
+}
+
+function clearCart() {
+  carted.clear();
   save();
   render();
 }
@@ -491,7 +571,11 @@ function openSearchTabs() {
   checkedItems.forEach(item => {
     const q = encodeURIComponent(item.name);
     window.open(`https://emart.ssg.com/search.ssg?query=${q}&sort=prcasc&tpc=A&dtypeYn=Y&shpp=ssgem&page=1`, '_blank');
+    carted.add(item.id);
   });
+  checked.clear();
+  save();
+  render();
 }
 
 let editingId = null;
@@ -545,65 +629,100 @@ function setTab(tab) {
 function render() {
   // 탭
   const cats = getCategories();
-  const tabs = ['전체', ...cats];
-  document.getElementById('tabBar').innerHTML = tabs.map(t =>
-    `<button class="tab ${activeTab === t ? 'active' : ''}" onclick="setTab('${t}')">${t}</button>`
-  ).join('');
+  const cartLabel = `🛒 장바구니${carted.size > 0 ? ` (${carted.size})` : ''}`;
+  const tabs = ['전체', ...cats, cartLabel];
+  const isCartTab = activeTab === cartLabel || activeTab.startsWith('🛒 장바구니');
+  document.getElementById('tabBar').innerHTML = tabs.map(t => {
+    const isCart = t.startsWith('🛒 장바구니');
+    const active = isCart ? isCartTab : activeTab === t;
+    return `<button class="tab ${active ? 'active' : ''}" onclick="setTab('${t.replace(/'/g, "\\'")}')">${t}</button>`;
+  }).join('');
 
   // 카드
-  const filteredCats = activeTab === '전체' ? cats : [activeTab];
   let html = '';
-  for (const cat of filteredCats) {
-    const catItems = items.filter(i => i.category === cat);
-    if (!catItems.length && addFormOpenCat !== cat) continue;
-    const emoji = CATEGORY_EMOJI[cat] || '📦';
 
-    html += `<div class="category-section"><div class="category-title">${cat}</div><div class="card-grid">`;
-
-    for (const item of catItems) {
-      const isChecked = checked.has(item.id);
-      const imgHtml = item.image
-        ? `<img src="${item.image}" alt="${item.name}" onerror="this.style.display='none'">`
-        : `<span class="placeholder">${emoji}</span>`;
-      html += `
-        <div class="item-card ${isChecked ? 'checked' : ''}" onclick="toggleCheck(${item.id})">
-          <div class="card-actions">
-            <button class="btn-del"  onclick="deleteItem(${item.id},event)" title="삭제">✕</button>
-            <button class="btn-edit" onclick="openEditModal(${item.id},event)" title="수정">✎</button>
+  if (isCartTab) {
+    // 장바구니 뷰
+    const cartItems = items.filter(i => carted.has(i.id));
+    html += `<div class="cart-section">
+      <div class="cart-header">
+        <h2>🛒 가상 장바구니</h2>
+        <button class="btn-cart-clear" onclick="clearCart()">전체 취소</button>
+      </div>`;
+    if (cartItems.length === 0) {
+      html += `<div class="cart-empty">장바구니가 비어있어요</div>`;
+    } else {
+      cartItems.forEach(item => {
+        const emoji = CATEGORY_EMOJI[item.category] || '📦';
+        const imgHtml = item.image
+          ? `<img src="${item.image}" alt="${item.name}" onerror="this.style.display='none'">`
+          : emoji;
+        html += `<div class="cart-item">
+          <div class="cart-item-img">${imgHtml}</div>
+          <div class="cart-item-info">
+            <div class="cart-item-name">${item.name}</div>
+            ${item.note ? `<div class="cart-item-note">${item.note}</div>` : ''}
           </div>
-          <div class="card-img">
-            ${imgHtml}
-            <div class="check-overlay">
-              <div class="check-badge">
-                <svg width="14" height="11" viewBox="0 0 14 11" fill="none">
-                  <path d="M1 5.5L5 9.5L13 1.5" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+          <button class="btn-cart-remove" onclick="removeFromCart(${item.id},event)">×</button>
+        </div>`;
+      });
+    }
+    html += `</div>`;
+  } else {
+    const filteredCats = activeTab === '전체' ? cats : [activeTab];
+    for (const cat of filteredCats) {
+      const catItems = items.filter(i => i.category === cat);
+      if (!catItems.length && addFormOpenCat !== cat) continue;
+      const emoji = CATEGORY_EMOJI[cat] || '📦';
+
+      html += `<div class="category-section"><div class="category-title">${cat}</div><div class="card-grid">`;
+
+      for (const item of catItems) {
+        const isChecked = checked.has(item.id);
+        const isCarted = carted.has(item.id);
+        const imgHtml = item.image
+          ? `<img src="${item.image}" alt="${item.name}" onerror="this.style.display='none'">`
+          : `<span class="placeholder">${emoji}</span>`;
+        html += `
+          <div class="item-card ${isChecked ? 'checked' : ''} ${isCarted ? 'carted' : ''}" onclick="toggleCheck(${item.id})">
+            <div class="card-actions">
+              <button class="btn-del"  onclick="deleteItem(${item.id},event)" title="삭제">✕</button>
+              <button class="btn-edit" onclick="openEditModal(${item.id},event)" title="수정">✎</button>
+            </div>
+            <div class="card-img">
+              ${imgHtml}
+              <div class="check-overlay">
+                <div class="check-badge">
+                  <svg width="14" height="11" viewBox="0 0 14 11" fill="none">
+                    <path d="M1 5.5L5 9.5L13 1.5" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="card-body">
-            <div class="card-name">${item.name}</div>
-            ${item.note ? `<div class="card-note">${item.note}</div>` : ''}
-          </div>
-        </div>`;
-    }
+            <div class="card-body">
+              <div class="card-name">${item.name}</div>
+              ${item.note ? `<div class="card-note">${item.note}</div>` : ''}
+            </div>
+          </div>`;
+      }
 
-    // 추가 폼
-    if (addFormOpenCat === cat) {
-      html += `
-        <div class="add-form open">
-          <input id="newName" type="text" placeholder="상품명" autofocus />
-          <input id="newNote" type="text" placeholder="용량·메모 (선택)" />
-          <div class="form-row">
-            <button class="btn-cancel" onclick="addFormOpenCat=null;render()">취소</button>
-            <button class="btn-add-item" onclick="addItem()">추가</button>
-          </div>
-        </div>`;
-    } else {
-      html += `<button class="btn-open-add" onclick="addFormOpenCat='${cat}';activeTab='${cat}';render()">+</button>`;
-    }
+      // 추가 폼
+      if (addFormOpenCat === cat) {
+        html += `
+          <div class="add-form open">
+            <input id="newName" type="text" placeholder="상품명" autofocus />
+            <input id="newNote" type="text" placeholder="용량·메모 (선택)" />
+            <div class="form-row">
+              <button class="btn-cancel" onclick="addFormOpenCat=null;render()">취소</button>
+              <button class="btn-add-item" onclick="addItem()">추가</button>
+            </div>
+          </div>`;
+      } else {
+        html += `<button class="btn-open-add" onclick="addFormOpenCat='${cat}';activeTab='${cat}';render()">+</button>`;
+      }
 
-    html += `</div></div>`;
+      html += `</div></div>`;
+    }
   }
 
   if (!html) html = '<div class="empty-state">항목이 없어요</div>';
